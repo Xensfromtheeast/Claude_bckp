@@ -1,0 +1,105 @@
+name: Release
+
+# Builds Sentinel desktop installers for Windows, macOS (Apple Silicon + Intel)
+# and Linux, then publishes them to a GitHub Release.
+#
+# Trigger: push a version tag (e.g. `v0.1.0`), or run manually from the
+# Actions tab via "Run workflow".
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# tauri-action needs write access to create the release and upload assets.
+permissions:
+  contents: write
+
+jobs:
+  publish-tauri:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon (M-series) build
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+          # Intel macOS build
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
+          # Linux build (.AppImage + .deb). 22.04 ships webkit2gtk-4.1,
+          # which Tauri 2 requires.
+          - platform: 'ubuntu-22.04'
+            args: ''
+          # Windows build (.msi + .exe / NSIS)
+          - platform: 'windows-latest'
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libgtk-3-dev \
+            libxdo-dev \
+            libssl-dev \
+            patchelf \
+            build-essential \
+            curl \
+            wget \
+            file
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # Install both macOS targets so either matrix arg can build.
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        # npm ci requires a committed package-lock.json. If the repo has no
+        # lockfile, swap this for `npm install`.
+        run: npm ci
+
+      - name: Build app and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # --- Optional signing secrets (see DEPLOYMENT.md) ---
+          # Tauri updater signing:
+          # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS code signing + notarization:
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Sentinel ${{ github.ref_name }}'
+          releaseBody: 'Download the installer for your platform from the assets below.'
+          # Publish as a draft so you can review assets before going public.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
