@@ -43,6 +43,17 @@ class HTTPTest < Minitest::Test
     Net::HTTP.start("127.0.0.1", @port) { |h| h.request(Net::HTTP::Get.new(path)) }
   end
 
+  def test_serves_structured_pickers_and_history_route
+    res = get("/")
+    assert_includes res.body, 'id="f-start-day"'
+    assert_includes res.body, 'id="f-end-day"'
+    assert_includes res.body, 'id="arch"'
+
+    res = get("/api/history")
+    assert_equal "200", res.code
+    assert_equal [], JSON.parse(res.body)["weeks"]
+  end
+
   def test_serves_the_dashboard
     res = get("/")
     assert_equal "200", res.code

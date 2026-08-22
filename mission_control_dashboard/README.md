@@ -14,7 +14,7 @@ build step, no CDN. Nothing to install but the gem itself.
 
 ```bash
 gem build mission_control_dashboard.gemspec
-gem install mission_control_dashboard-2.3.0.gem
+gem install mission_control_dashboard-2.4.0.gem
 mission_control server
 ```
 
@@ -38,11 +38,14 @@ That works straight out of the directory — no build, no install.
 | `mission_control open` | Start it and open your browser |
 | `mission_control status` | Print live tasks, next up and the goal countdown to the terminal |
 | `mission_control init` | Write a starter board (won't overwrite an existing one) |
+| `mission_control archive` | Snapshot a week into `history/` with absolute dates (`--week -1` for last week) |
+| `mission_control history` | List the archived weeks |
+| `mission_control profile` | Write a starter `profile.yml` (who the board is for — local only) |
 | `mission_control doctor` | Check the environment and validate your board |
 | `mission_control path` | Print the board file path |
 
 Flags: `-p/--port`, `-H/--host`, `-b/--board`, `-q/--quiet`, `--read-only`,
-`--engine sinatra`.
+`--engine sinatra`, `--week N` (archive), `--force`.
 
 ---
 
@@ -130,6 +133,14 @@ The dashboard is read-write. **+ Add task** opens the editor; clicking any bar,
 task name or card opens it on that task. Checklist boxes on the cards tick with
 one click, no dialog. Ctrl/Cmd-Enter saves, Esc closes.
 
+Start and end are structured pickers, not typed strings: a weekday dropdown
+plus a time input, with a **Date…** option that swaps in a calendar picker for
+tasks pinned to a real date. A weekday means the week you are viewing; a
+pinned date means that day forever. Pick a past date (and status Done) to log
+something after the fact. The pickers compose the exact same strings the file
+uses, and a task written as pinned round-trips as pinned — editing it in the
+browser no longer silently converts it to weekday-relative.
+
 Every save writes straight back to your YAML file.
 
 ### Your comments survive
@@ -183,6 +194,7 @@ your board. Use `--read-only` if you want to put it on a wall display.
 | `POST /api/tasks` | create — body `{rev, task: {...}}` |
 | `PATCH /api/tasks/:id` | update the given fields only |
 | `DELETE /api/tasks/:id` | remove |
+| `POST /api/archive` | snapshot a week into `history/` — body `{week: 0 or negative, force: bool}` |
 
 All three require the `X-Mission-Control: 1` header and return
 `{ok, id, rev}` or `{ok: false, error}` with a `409` (stale rev) or `422`
@@ -199,6 +211,65 @@ All three require the `X-Mission-Control: 1` header and return
 
 Weekday-relative times are the useful default: a board written with `mon`/`tue`
 never goes stale, and the `←` / `→` buttons walk it forward or back a week.
+
+One consequence worth knowing: a **done** task pinned to a date is shown only
+in the week that date falls in — finished work belongs to its week (and to the
+archive, below), not to every later week as a sliver on the edge of the chart.
+An **unfinished** pinned task keeps following you, because it is still an
+obligation and the capacity maths must see it.
+
+---
+
+## History
+
+Paging back with `←` does *not* show real history by itself: a
+weekday-relative task is re-resolved against whichever week you are viewing,
+so last week's view is a replay of the current file, not what last week
+actually contained.
+
+Real history is an **archive**: a snapshot of a week — absolute timestamps,
+statuses, progress, the goal and the capacity numbers as they stood — written
+to `history/<year>-W<week>.yml` next to your board.
+
+```bash
+mission_control archive             # snapshot this week
+mission_control archive --week -1   # snapshot last week (Monday-morning ritual)
+mission_control history             # list what's archived
+```
+
+Or click **Archive wk** in the browser. Once a past week has an archive, the
+`←` button shows the archived snapshot (read-only, with a banner) instead of
+the replay — with a button to see the live replay if you want it. Archives are
+plain YAML you can read, diff, and grep; re-archiving a week is refused unless
+you `--force` it.
+
+`GET /api/history` lists archived weeks; `GET /api/history/2026-W34` returns
+one, served read-only no matter how the server was started.
+
+---
+
+## Profile
+
+`profile.yml`, next to your board, says who the board is for: what your
+tracks mean, how many hours a week actually holds for you, your standing
+constraints, failure modes, and strengths. Entirely optional, entirely
+local — nothing in it is ever sent anywhere.
+
+```bash
+mission_control profile   # writes the template
+```
+
+Every field ships commented out, because a profile is a statement about you
+and you write it. Each field you uncomment becomes context the dashboard
+checks your week against:
+
+- `weekly_hours: 45` — if the board books more than this, the warning box
+  says so. `day_start`/`day_end` say what is *possible*; this says what is
+  *sustainable*.
+- `focus_tracks: [Client, Studio]` — open work outside these tracks gets
+  flagged (never blocked) so drift is visible while it is cheap to correct.
+
+Warnings, never rejections: the profile advises, the operator decides.
 
 ---
 
@@ -248,6 +319,8 @@ Hover any bar for the full window, status, progress, owner and notes.
 | --- | --- |
 | `/` | the dashboard |
 | `/api/board?week=N` | the full computed board as JSON |
+| `/api/history` | the list of archived weeks |
+| `/api/history/:week` | one archived snapshot (always read-only) |
 | `/healthz` | `{"ok":true}` |
 
 `/api/board` is the integration point. It returns resolved timestamps, derived
@@ -315,8 +388,10 @@ output was blocked — which on Windows means: click the console, press Esc.
 ruby -Ilib -Itest -e 'Dir["test/**/*_test.rb"].each { |f| require File.expand_path(f) }'
 ```
 
-60 tests cover time parsing, state derivation, the capacity maths, malformed
+83 tests cover time parsing, state derivation, the capacity maths, malformed
 YAML, HTML escaping, the socket server end to end, comment-preserving writes,
-revision conflicts, and every rejection path on the write API.
+revision conflicts, every rejection path on the write API, week archiving
+(including the id validation and the read-only guarantee on history), and the
+profile's warning rules.
 
 MIT licensed.

@@ -1,5 +1,12 @@
 # Task Analysis and Feature Implementation — Mission Control Dashboard v2.3.0
 
+> **Implementation status (v2.4.0, phase one):** sections II–V below are now
+> built — structured date/time pickers (II), the archive/history system (III),
+> the architecture answers folded into the README (IV), and the local-only
+> `profile.yml` with alignment warnings (V, in its modest warnings-only form).
+> Section VI (AI chat-import) is deliberately still analysis, reserved for its
+> own follow-up. The text below is preserved as the design rationale it was.
+
 This is a design analysis, not a changelog: it evaluates the enhancements
 proposed for the dashboard against the actual v2.3.0 codebase (`lib/`,
 `week.yml`) and recommends what to build and in what order. No code in this

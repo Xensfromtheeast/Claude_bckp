@@ -5,6 +5,8 @@ require "json"
 require_relative "board"
 require_relative "view"
 require_relative "writer"
+require_relative "archive"
+require_relative "profile"
 
 module MissionControlDashboard
   # Server-agnostic routing. Takes (method, path, params, body, headers) and
@@ -12,7 +14,7 @@ module MissionControlDashboard
   # optional Sinatra adapter are thin wrappers over this, so there is exactly
   # one place where the app's behaviour lives.
   class App
-    ROUTES = %w[/ /api/board /api/tasks /healthz].freeze
+    ROUTES = %w[/ /api/board /api/tasks /api/history /api/archive /healthz].freeze
     READS  = %w[GET HEAD].freeze
     WRITES = %w[POST PATCH PUT DELETE].freeze
 
@@ -21,11 +23,13 @@ module MissionControlDashboard
     # writes files does not.
     LOOPBACK = /\A(localhost|127(\.\d+){3}|\[?::1\]?|0\.0\.0\.0)(:\d+)?\z/i.freeze
 
-    def initialize(board, writer: nil, read_only: false, server: nil)
+    def initialize(board, writer: nil, read_only: false, server: nil, archive: nil, profile: nil)
       @board = board
       @writer = writer || Writer.new(board.path)
       @read_only = read_only
       @server = server
+      @archive = archive || Archive.new(board)
+      @profile = profile || Profile.new(Profile.default_path(board.path))
     end
 
     # Let the server hand itself over after construction, so /healthz can
@@ -49,6 +53,9 @@ module MissionControlDashboard
       in ["GET" | "HEAD", "/api/board"] then api(params)
       in ["GET" | "HEAD", "/healthz"]   then [200, JSON_T, JSON.generate(health)]
       in ["GET" | "HEAD", "/favicon.ico"] then [204, "image/x-icon", ""]
+      in ["GET" | "HEAD", "/api/history"] then history_index
+      in ["GET" | "HEAD", %r{\A/api/history/(?<id>[^/]+)\z}] then history_show(Regexp.last_match[:id])
+      in ["POST", "/api/archive"]       then archive_week(body)
       in ["POST", "/api/tasks"]         then create_task(body)
       in [("PATCH" | "PUT"), %r{\A/api/tasks/(?<id>.+)\z}]  then update_task(Regexp.last_match[:id], body)
       in ["DELETE", %r{\A/api/tasks/(?<id>.+)\z}]           then delete_task(Regexp.last_match[:id])
@@ -106,8 +113,52 @@ module MissionControlDashboard
     def snapshot(params)
       offset = params["week"].to_i
       offset = 0 if offset.abs > 260 # sanity clamp: +/- 5 years
-      @board.snapshot(now: Time.now, week_offset: offset).merge("rev" => @writer.revision,
-                                                                "read_only" => @read_only)
+      snap = @board.snapshot(now: Time.now, week_offset: offset).merge("rev" => @writer.revision,
+                                                                       "read_only" => @read_only)
+      snap["profile"] = @profile.summary
+      snap["warnings"] = snap["warnings"] + @profile.review(snap)
+
+      # A past week whose real snapshot is on disk: tell the client, so it
+      # can show history instead of replaying relative tasks against a week
+      # they were never resolved in.
+      if offset.negative?
+        id = @archive.id_for(snap.dig("meta", "week_start"))
+        snap["archive_available"] = id if @archive.exist?(id)
+      end
+      snap
+    end
+
+    # ---------- history ----------
+
+    def history_index
+      [200, JSON_T, JSON.generate("weeks" => @archive.list)]
+    end
+
+    def history_show(id)
+      doc = @archive.read(unescape(id))
+      return json_error(404, "No archived week #{id.inspect}. See /api/history.") unless doc
+
+      # History is served read-only no matter how the server was started.
+      [200, JSON_T, JSON.generate(doc.merge("archived" => true, "read_only" => true))]
+    end
+
+    def archive_week(body)
+      payload = parse_json(body)
+      return payload if payload.is_a?(Array)
+
+      offset = payload["week"].to_i
+      return json_error(422, "Cannot archive a future week.") if offset.positive?
+
+      saved = @archive.write(week_offset: offset, force: truthy_flag(payload["force"]))
+      [201, JSON_T, JSON.generate(saved.merge("ok" => true))]
+    rescue Archive::ExistsError => e
+      json_error(409, "#{e.message} Pass force to overwrite it with the current view.")
+    rescue Archive::ArchiveError, Board::BoardError => e
+      json_error(422, e.message)
+    end
+
+    def truthy_flag(value)
+      [true, "true", 1, "1"].include?(value)
     end
 
     # ---------- writes ----------

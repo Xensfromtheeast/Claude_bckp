@@ -23,6 +23,9 @@ module MissionControlDashboard
         open       Start the server and open a browser at it
         init       Write a starter board.yml (won't clobber an existing one)
         status     Print live tasks, next up and the goal countdown to the terminal
+        archive    Snapshot a week into history/ with absolute dates (--week -1 for last week)
+        history    List the archived weeks
+        profile    Write a starter profile.yml (who the board is for; local only)
         path       Print the board file path
         doctor     Check the environment and validate the board
         version    Print the gem version
@@ -34,7 +37,8 @@ module MissionControlDashboard
                              override with MISSION_CONTROL_BOARD)
             --engine NAME    builtin (default) or sinatra
             --read-only      Serve the dashboard but refuse all edits
-            --force          init: overwrite an existing board
+            --week N         archive: which week to snapshot (0 = this week, -1 = last)
+            --force          init/profile: overwrite an existing file; archive: re-archive a week
         -q, --quiet          Suppress request logging
         -h, --help           This message
 
@@ -54,7 +58,7 @@ module MissionControlDashboard
       $stdout.sync = true # keep the banner and request log unbuffered (matters on Windows)
       opts = {
         port: 4567, host: "127.0.0.1", board: nil, engine: "builtin",
-        force: false, quiet: false, open: false, read_only: false
+        force: false, quiet: false, open: false, read_only: false, week: 0
       }
 
       parser = OptionParser.new do |o|
@@ -63,6 +67,7 @@ module MissionControlDashboard
         o.on("-H", "--host HOST")          { |v| opts[:host] = v }
         o.on("-b", "--board PATH")         { |v| opts[:board] = v }
         o.on("--engine NAME")              { |v| opts[:engine] = v.downcase }
+        o.on("--week N", Integer)          { |v| opts[:week] = v }
         o.on("--force")                    { opts[:force] = true }
         o.on("--read-only")                { opts[:read_only] = true }
         o.on("-q", "--quiet")              { opts[:quiet] = true }
@@ -86,6 +91,9 @@ module MissionControlDashboard
       when "open"            then cmd_server(opts.merge(open: true))
       when "init"            then cmd_init(opts)
       when "status", "tasks" then cmd_status(opts)
+      when "archive"         then cmd_archive(opts)
+      when "history"         then cmd_history(opts)
+      when "profile"         then cmd_profile(opts)
       when "path"            then puts board_path(opts); 0
       when "doctor"          then cmd_doctor(opts)
       when "version"         then puts "Mission Control Dashboard v#{VERSION}"; 0
@@ -171,6 +179,54 @@ module MissionControlDashboard
       0
     end
 
+    def cmd_archive(opts)
+      arch = Archive.new(Board.new(board_path(opts)))
+      saved = arch.write(week_offset: opts[:week], force: opts[:force])
+      label = opts[:week].zero? ? "this week" : "#{opts[:week].abs} week#{opts[:week] == -1 ? '' : 's'} back"
+      puts "#{C[:green]}Archived #{label} as #{saved['week']}:#{C[:reset]} #{saved['path']}"
+      0
+    rescue Archive::ExistsError => e
+      warn "#{C[:amber]}#{e.message}#{C[:reset]}"
+      warn "#{C[:grey]}Pass --force to overwrite it with the current view.#{C[:reset]}"
+      1
+    rescue Archive::ArchiveError, Board::BoardError => e
+      warn "#{C[:red]}#{e.message}#{C[:reset]}"
+      1
+    end
+
+    def cmd_history(opts)
+      arch = Archive.new(Board.new(board_path(opts)))
+      weeks = arch.list
+      if weeks.empty?
+        puts "#{C[:grey]}No archived weeks yet. Run `mission_control archive` at the end of a week " \
+             "(or `archive --week -1` on Monday).#{C[:reset]}"
+        return 0
+      end
+
+      puts "\n#{C[:bold]}Archived weeks#{C[:reset]} #{C[:grey]}(#{arch.dir})#{C[:reset]}\n\n"
+      weeks.each do |w|
+        goal = w["goal"].empty? ? "" : " #{C[:grey]}- #{w['goal']}#{C[:reset]}"
+        puts "  #{C[:blue]}#{w['week']}#{C[:reset]}  #{w['week_start'][0, 10]} " \
+             "#{C[:grey]}->#{C[:reset]} #{w['week_end'][0, 10]}  " \
+             "#{w['done']}/#{w['tasks']} done#{goal}"
+      end
+      puts
+      0
+    end
+
+    def cmd_profile(opts)
+      profile = Profile.new(Profile.default_path(board_path(opts)))
+      if profile.install_seed(force: opts[:force])
+        puts "#{C[:green]}Wrote starter profile:#{C[:reset]} #{profile.path}"
+        puts "#{C[:grey]}Every field ships commented out - uncomment what is true about you. " \
+             "It stays on this machine.#{C[:reset]}"
+      else
+        puts "#{C[:amber]}Profile already exists:#{C[:reset]} #{profile.path}"
+        puts "#{C[:grey]}Pass --force to overwrite it with the template.#{C[:reset]}"
+      end
+      0
+    end
+
     def cmd_status(opts)
       snap = Board.new(board_path(opts)).snapshot
       g = snap["goal"]
@@ -240,6 +296,10 @@ module MissionControlDashboard
         line "board parses", true
         line "#{snap['tasks'].length} tasks across #{snap['tracks'].length} tracks", true
         optional "goal configured (enables countdown + capacity)", snap["goal"]["set"]
+        optional "profile configured (personalises warnings)",
+                 Profile.new(Profile.default_path(path)).summary["set"]
+        archived = Archive.new(Board.new(path)).list.length
+        optional "history archived (#{archived} week#{archived == 1 ? '' : 's'})", archived.positive?
         snap["warnings"].each { |w| puts "  #{C[:amber]}!#{C[:reset]} #{w}" }
       rescue Board::BoardError => e
         line "board parses", false

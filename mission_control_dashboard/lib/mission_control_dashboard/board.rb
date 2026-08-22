@@ -154,7 +154,16 @@ module MissionControlDashboard
           finish = start + 900
         end
 
-        status    = normalize_status(t["status"], title)
+        status = normalize_status(t["status"], title)
+
+        # A DONE task pinned to a date outside the viewed week belongs to
+        # its own week (and to the archive), not to every week after it as
+        # a sliver on the edge of the chart. Open work is different: a
+        # pinned task you never finished is still an obligation, so it
+        # stays visible — and counted — wherever you are.
+        next if status == "done" &&
+                (finish <= week_start || start >= week_start + (7 * 86_400))
+
         checklist = build_checklist(t["checklist"] || t["subtasks"], title)
         prog      = progress_for(t["progress"], status, checklist)
 
@@ -187,6 +196,12 @@ module MissionControlDashboard
           "checklist" => checklist,
           "start"    => iso(start),
           "end"      => iso(finish),
+          # The strings as written in the file. The editor needs these to
+          # tell a weekday-relative task from one pinned to a real date —
+          # otherwise editing a pinned task silently converts it to
+          # relative and it starts drifting week to week.
+          "raw_start" => (t["start"] || t["begin"]).to_s,
+          "raw_end"   => (t["end"] || t["finish"]).to_s,
           "start_ms" => (start.to_f * 1000).round,
           "end_ms"   => (finish.to_f * 1000).round,
           "hours"    => span_hours.round(2),
