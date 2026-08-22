@@ -174,6 +174,11 @@ module MissionControlDashboard
         .warn{background:#f5a5240f;border:1px solid #f5a52440;border-radius:12px;padding:13px 17px;margin-bottom:16px;font-size:12.5px}
         .warn b{color:var(--blocked);display:block;margin-bottom:6px;font-size:11px;letter-spacing:.1em;text-transform:uppercase}
         .warn ul{margin:0;padding-left:18px;color:#e2cfa8}
+        .archnote{background:#5b9df912;border:1px solid #5b9df94d;border-radius:12px;padding:13px 17px;
+                  margin-bottom:16px;font-size:12.5px;color:#cfe2ff;display:flex;align-items:center;
+                  gap:12px;flex-wrap:wrap}
+        .archnote b{color:var(--accent);letter-spacing:.08em;text-transform:uppercase;font-size:11px}
+        .archnote button{margin-left:auto}
         footer{color:var(--faint);font-size:11.5px;text-align:center;padding:18px 0 4px;line-height:1.8}
         footer code{color:var(--dim);background:#ffffff0a;padding:2px 6px;border-radius:5px}
 
@@ -206,7 +211,11 @@ module MissionControlDashboard
         .f label{font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);font-weight:600}
         .f .hint{font-size:11px;color:var(--faint);line-height:1.45}
         .f input,.f select,.f textarea{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
-              color:var(--text);padding:9px 11px;font:13px/1.4 inherit;font-family:inherit;width:100%}
+              color:var(--text);padding:9px 11px;font:13px/1.4 inherit;font-family:inherit;width:100%;
+              color-scheme:dark}
+        .dt{display:flex;gap:6px}
+        .dt select{flex:0 0 auto;width:auto;min-width:78px}
+        .dt input{flex:1;min-width:0}
         .f input:focus,.f select:focus,.f textarea:focus{outline:none;border-color:var(--accent);
               box-shadow:0 0 0 3px #5b9df926}
         .f textarea{resize:vertical;min-height:62px}
@@ -242,6 +251,7 @@ module MissionControlDashboard
         </header>
 
         <div class="offline" id="offline" style="display:none"></div>
+        <div class="archnote" id="archnote" style="display:none"></div>
         <div id="warnbox"></div>
         <div class="tiles" id="tiles"></div>
 
@@ -260,6 +270,7 @@ module MissionControlDashboard
               <input type="range" id="zoom" min="6" max="42" step="2" value="18" title="Zoom">
               <button id="compress" title="Compress each day to its working window">Work hours</button>
               <button id="alldays" title="Show weekends even when nothing is booked">7 days</button>
+              <button id="arch" title="Snapshot the viewed week into history/ with absolute dates">Archive wk</button>
             </div>
             <div class="legend">
               <span><i style="background:#5b9df9"></i>Live</span>
@@ -315,12 +326,32 @@ module MissionControlDashboard
                   <option value="done">Done</option>
                 </select></div>
 
-              <div class="f"><label for="f-start">Start</label>
-                <input id="f-start" type="text" placeholder="mon 09:00" autocomplete="off">
-                <span class="hint">"mon 09:00", "today 14:00", or "2026-08-14 17:00"</span></div>
+              <div class="f"><label for="f-start-day">Start</label>
+                <div class="dt">
+                  <select id="f-start-day">
+                    <option value="mon">Mon</option><option value="tue">Tue</option>
+                    <option value="wed">Wed</option><option value="thu">Thu</option>
+                    <option value="fri">Fri</option><option value="sat">Sat</option>
+                    <option value="sun">Sun</option><option value="date">Date&hellip;</option>
+                  </select>
+                  <input id="f-start-date" type="date" style="display:none">
+                  <input id="f-start-time" type="time" step="900">
+                </div>
+                <span class="hint">A weekday means the week you are viewing. Date&hellip; pins it to
+                the calendar &mdash; pick a past date (and status Done) to log something after the fact.</span></div>
 
-              <div class="f"><label for="f-end">End <span style="text-transform:none;letter-spacing:0">(or use duration)</span></label>
-                <input id="f-end" type="text" placeholder="tue 18:00" autocomplete="off"></div>
+              <div class="f"><label for="f-end-day">End <span style="text-transform:none;letter-spacing:0">(or use duration)</span></label>
+                <div class="dt">
+                  <select id="f-end-day">
+                    <option value="">&mdash;</option>
+                    <option value="mon">Mon</option><option value="tue">Tue</option>
+                    <option value="wed">Wed</option><option value="thu">Thu</option>
+                    <option value="fri">Fri</option><option value="sat">Sat</option>
+                    <option value="sun">Sun</option><option value="date">Date&hellip;</option>
+                  </select>
+                  <input id="f-end-date" type="date" style="display:none">
+                  <input id="f-end-time" type="time" step="900" style="display:none">
+                </div></div>
 
               <div class="f"><label for="f-duration">Duration (hours)</label>
                 <input id="f-duration" type="number" min="0.25" step="0.25" placeholder="4">
@@ -361,8 +392,9 @@ module MissionControlDashboard
       (function(){
         "use strict";
         var B = JSON.parse(document.getElementById('board-data').textContent);
-        var S = { px: 18, compress: true, allDays: false, scrolled: false };
+        var S = { px: 18, compress: true, allDays: false, scrolled: false, replayFor: null };
         var DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+        var DAYKEYS = ['mon','tue','wed','thu','fri','sat','sun'];
         var MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
         var $ = function(id){ return document.getElementById(id); };
 
@@ -662,6 +694,23 @@ module MissionControlDashboard
             ? '<div class="warn"><b>Board warnings</b><ul>'
               + B.warnings.map(function(w){ return '<li>'+esc(w)+'</li>'; }).join('') + '</ul></div>'
             : '';
+
+          var an = $('archnote');
+          if (B.archived){
+            an.style.display = '';
+            an.innerHTML = '<b>Archived week</b><span>'+esc(B.week)+' as captured '
+              + new Date(ms(B.archived_at)).toLocaleString(undefined,
+                  {weekday:'short', day:'numeric', month:'short', hour:'2-digit', minute:'2-digit'})
+              + ' &mdash; real history, read-only.</span>'
+              + '<button id="replay">View live replay instead</button>';
+            $('replay').onclick = function(){
+              S.replayFor = B.meta.week_offset; refresh(B.meta.week_offset);
+            };
+          } else {
+            an.style.display = 'none';
+          }
+          $('arch').style.display =
+            (B.read_only || B.archived || B.meta.week_offset > 0) ? 'none' : '';
         }
 
         function draw(){
@@ -714,10 +763,25 @@ module MissionControlDashboard
           if (POLL.inflight && offset === undefined) return Promise.resolve();
           POLL.inflight = true;
 
+          function show(d){ B = d; if (offset !== undefined) S.scrolled = false; draw(); }
+
           return fetchJSON('/api/board?week='+o)
             .then(function(d){
               POLL.inflight = false; POLL.misses = 0; offline(false);
-              B = d; if (offset !== undefined) S.scrolled = false; draw();
+              // A past week with a real snapshot on disk: show history, not
+              // a replay of relative tasks against a week they never lived
+              // in — unless the user explicitly asked for the replay.
+              if (d.archive_available && S.replayFor !== d.meta.week_offset){
+                return fetchJSON('/api/history/'+encodeURIComponent(d.archive_available))
+                  .then(function(a){
+                    a.meta.week_offset = d.meta.week_offset;
+                    a.rev = d.rev;
+                    a.warnings = a.warnings || [];
+                    show(a);
+                  })
+                  .catch(function(){ show(d); });
+              }
+              show(d);
             })
             .catch(function(e){
               POLL.inflight = false;
@@ -731,6 +795,39 @@ module MissionControlDashboard
         /* ================= editing ================= */
 
         var EDIT = { id: null, checklist: [], touchedProgress: false, busy: false };
+
+        /* Structured day/time pickers. They compose the exact strings the
+           backend already parses — "mon 09:00" for weekday-relative,
+           "2026-08-14 17:00" for pinned — so this is UI only. The raw_*
+           fields from the snapshot say which form the file used, so a
+           pinned task round-trips as pinned instead of silently going
+           relative and drifting week to week. */
+        function isoDate(d){ return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+
+        function dtSync(p){
+          var day = $(p+'-day').value;
+          $(p+'-date').style.display = day === 'date' ? '' : 'none';
+          $(p+'-time').style.display = day === '' ? 'none' : '';
+        }
+
+        function dtSet(p, raw, d){
+          if (!d){ $(p+'-day').value = ''; $(p+'-date').value = ''; $(p+'-time').value = ''; dtSync(p); return; }
+          var m = /^\s*(mon|tue|wed|thu|fri|sat|sun)/i.exec(raw || '');
+          if (m){ $(p+'-day').value = m[1].toLowerCase(); }
+          else { $(p+'-day').value = 'date'; $(p+'-date').value = isoDate(d); }
+          $(p+'-time').value = hhmm(d);
+          dtSync(p);
+        }
+
+        function dtGet(p){
+          var day = $(p+'-day').value, time = $(p+'-time').value;
+          if (!day || !time) return '';
+          if (day === 'date'){
+            var dd = $(p+'-date').value;
+            return dd ? dd+' '+time : '';
+          }
+          return day+' '+time;
+        }
 
         function api(method, path, payload){
           return fetch(path, {
@@ -816,14 +913,22 @@ module MissionControlDashboard
           $('f-progress-v').textContent = (task ? Math.round(task.progress*100) : 0)+'%';
 
           if (task){
-            var s = new Date(task.start_ms), e = new Date(task.end_ms);
-            $('f-start').value = DAYS[(s.getDay()+6)%7].toLowerCase()+' '+hhmm(s);
-            $('f-end').value   = DAYS[(e.getDay()+6)%7].toLowerCase()+' '+hhmm(e);
-            $('f-duration').value = '';
+            dtSet('f-start', task.raw_start, new Date(task.start_ms));
+            if (task.raw_end){
+              dtSet('f-end', task.raw_end, new Date(task.end_ms));
+              $('f-duration').value = '';
+            } else {
+              // Written with a duration, so round-trip as one.
+              dtSet('f-end', '', null);
+              $('f-duration').value = Math.round((task.end_ms - task.start_ms)/36000)/100;
+            }
           } else {
             var n = new Date(), h = Math.min(n.getHours()+1, 22);
-            $('f-start').value = DAYS[(n.getDay()+6)%7].toLowerCase()+' '+pad(h)+':00';
-            $('f-end').value = '';
+            $('f-start-day').value = DAYKEYS[(n.getDay()+6)%7];
+            $('f-start-date').value = '';
+            $('f-start-time').value = pad(h)+':00';
+            dtSync('f-start');
+            dtSet('f-end', '', null);
             $('f-duration').value = 2;
           }
 
@@ -842,12 +947,12 @@ module MissionControlDashboard
             title:  $('f-title').value.trim(),
             track:  $('f-track').value.trim() || 'General',
             status: $('f-status').value,
-            start:  $('f-start').value.trim(),
+            start:  dtGet('f-start'),
             owner:  $('f-owner').value.trim(),
             notes:  $('f-notes').value.trim(),
             checklist: EDIT.checklist.filter(function(c){ return c.title.trim(); })
           };
-          var end = $('f-end').value.trim(), dur = parseFloat($('f-duration').value);
+          var end = dtGet('f-end'), dur = parseFloat($('f-duration').value);
           if (end) { t.end = end; } else if (dur > 0) { t.duration = dur; }
           var eff = parseFloat($('f-effort').value);
           if (eff > 0) t.effort = eff;
@@ -862,7 +967,7 @@ module MissionControlDashboard
           if (EDIT.busy) return;
           var task = collect();
           if (!task.title){ showErr('Give it a title.'); return; }
-          if (!task.start){ showErr('Give it a start time, e.g. "wed 10:00".'); return; }
+          if (!task.start){ showErr('Pick a start day (or date) and time.'); return; }
           if (!task.end && !task.duration){ showErr('Set an End or a Duration.'); return; }
 
           EDIT.busy = true; $('f-save').textContent = 'Saving...';
@@ -926,6 +1031,8 @@ module MissionControlDashboard
         $('f-additem').onclick = function(){
           EDIT.checklist.push({ title: '', done: false }); drawChecklist(); syncProgressFromChecklist();
         };
+        $('f-start-day').onchange = function(){ dtSync('f-start'); };
+        $('f-end-day').onchange   = function(){ dtSync('f-end'); };
         $('f-progress').oninput = function(){
           EDIT.touchedProgress = true;
           $('f-progress-v').textContent = this.value+'%';
@@ -949,6 +1056,26 @@ module MissionControlDashboard
         $('alldays').onclick  = function(){
           S.allDays = !S.allDays; S.scrolled = false;
           S.px = fitZoom(); $('zoom').value = S.px; draw();
+        };
+        $('arch').onclick = function(){
+          var wk = B.meta.week_offset;
+          function done(d){
+            toast('<b>Archived '+esc(d.week)+'</b>Snapshotted with absolute dates. '
+                + 'The &larr; button now shows real history for that week.', 'ok');
+            S.replayFor = null;
+            refresh(wk);
+          }
+          api('POST', '/api/archive', { week: wk })
+            .then(done)
+            .catch(function(e){
+              if (e.status === 409){
+                if (confirm('An archive for this week already exists. Overwrite it with the current view?')){
+                  api('POST', '/api/archive', { week: wk, force: true }).then(done).catch(failed);
+                }
+              } else {
+                failed(e);
+              }
+            });
         };
 
         S.compress = B.meta.compress !== false;

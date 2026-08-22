@@ -49,6 +49,49 @@ class BoardTest < Minitest::Test
     end
   end
 
+  def test_raw_time_strings_are_exposed_for_the_editor
+    with_board(<<~Y) do |b|
+      tasks:
+        - title: Rel
+          start: "mon 09:00"
+          duration: 2
+        - title: Pinned
+          start: "2026-08-14 10:00"
+          end: "2026-08-14 12:00"
+    Y
+      tasks = b.snapshot(now: now)["tasks"]
+      assert_equal "mon 09:00", tasks[0]["raw_start"]
+      assert_equal "", tasks[0]["raw_end"], "a duration task has no raw end"
+      assert_equal "2026-08-14 10:00", tasks[1]["raw_start"]
+      assert_equal "2026-08-14 12:00", tasks[1]["raw_end"]
+    end
+  end
+
+  def test_done_pinned_tasks_stay_in_their_own_week
+    with_board(<<~Y) do |b|
+      tasks:
+        - title: Logged last week
+          start: "2026-08-05 09:00"
+          end: "2026-08-05 11:00"
+          status: done
+        - title: Never finished
+          start: "2026-08-05 12:00"
+          end: "2026-08-05 14:00"
+          status: todo
+    Y
+      # Viewing the week of 2026-08-10: the done task from the 5th is
+      # history, but the unfinished one is still an obligation.
+      titles = b.snapshot(now: now)["tasks"].map { |t| t["title"] }
+      refute_includes titles, "Logged last week"
+      assert_includes titles, "Never finished"
+
+      # Its own week shows both.
+      last_week = b.snapshot(now: now, week_offset: -1)["tasks"].map { |t| t["title"] }
+      assert_includes last_week, "Logged last week"
+      assert_includes last_week, "Never finished"
+    end
+  end
+
   def test_week_offset_shifts_relative_tasks
     with_board(<<~Y) do |b|
       tasks:
