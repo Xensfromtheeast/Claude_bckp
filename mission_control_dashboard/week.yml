@@ -1,0 +1,123 @@
+# ============================================================
+#  Mission Control — week board
+#  Converted from the Week Timeline screenshots.
+#
+#  Every project below is transcribed exactly as shown: same titles,
+#  same day spans, same 0% progress. Two fields are NOT from your
+#  screenshots and are marked  <-- ESTIMATE  — see the note at the
+#  bottom of this file before you trust the capacity tile.
+# ============================================================
+
+meta:
+  title: Mission Control
+  operator: Xens
+  # Widened to 04:00 so the Saturday 0400 Recovery block draws truthfully
+  # instead of being squashed against the edge of the column.
+  day_start: "04:00"
+  day_end: "22:00"
+  compress: true
+
+# No goal was set in the source board. Uncomment and point it at whatever
+# this week is actually for — that switches on the countdown and the
+# capacity check. Without it those two tiles stay dark.
+#
+# goal:
+#   label: <what this week is actually for>
+#   due: "fri 18:00"
+#   detail: <what "done" looks like>
+
+tasks:
+  # ---------------- Client / commercial ----------------
+
+  - id: itw-deliverables
+    title: ITW Deliverables & Contract
+    track: Client
+    start: "mon 09:00"
+    end: "tue 18:00"
+    effort: 8            # <-- ESTIMATE
+    status: todo
+    checklist:
+      - Finalize Contract
+      - Lock in Deliverables
+      - Finalize Media Plan
+      - Internal Reviews
+
+  - id: tta-presentation
+    title: TTA Presentation
+    track: Client
+    start: "tue 09:00"
+    end: "wed 18:00"
+    effort: 6            # <-- ESTIMATE
+    status: todo
+
+  - id: pssf-meeting
+    title: PSSF Client Meeting
+    track: Client
+    start: "thu 10:00"
+    end: "thu 12:00"
+    effort: 2            # <-- ESTIMATE
+    status: todo
+
+  # ---------------- Studio / audio ----------------
+
+  - id: parallel-mix
+    title: Parallel Mix Setup (Dual X32)
+    track: Studio
+    start: "tue 09:00"
+    end: "thu 18:00"
+    effort: 12           # <-- ESTIMATE
+    status: todo
+
+  - id: nhr-automation
+    title: NHR Radio Automation
+    track: Studio
+    start: "wed 09:00"
+    end: "fri 18:00"
+    effort: 14           # <-- ESTIMATE
+    status: todo
+
+  # ---------------- Ops / systems ----------------
+
+  - id: ysk-files
+    title: YSK Files Review & Clean
+    track: Ops
+    start: "mon 09:00"
+    end: "fri 18:00"
+    effort: 8            # <-- ESTIMATE
+    status: todo
+
+  - id: stress-test
+    title: System Stress-Test
+    track: Ops
+    start: "fri 09:00"
+    end: "fri 18:00"
+    effort: 4            # <-- ESTIMATE
+    status: todo
+
+  - id: recovery-0400
+    title: 0400 Recovery
+    track: Ops
+    start: "sat 04:00"
+    duration: 3          # <-- ESTIMATE (source showed 0400 -> 0400)
+    status: todo
+    notes: Source board listed this as Sat 0400 to Sat 0400 — no end time. Set the real duration.
+
+# ============================================================
+#  WHY THE ESTIMATES ARE MARKED
+#
+#  Your source board tracked SPANS ("Mon → Fri"), not EFFORT.
+#  Those are different quantities and only one of them belongs in a
+#  capacity calculation.
+#
+#  "YSK Files Review & Clean, Mon → Fri" does not mean 45 hours of
+#  work. It means a window that happens to be open for five days.
+#  Summed as booked hours it would read as ~150h against a ~108h
+#  week and scream overcommitted for no real reason.
+#
+#  So each project carries both:
+#    start/end  — the window, drawn as a hollow bar on the timeline
+#    effort     — the hours it actually costs, used for capacity
+#
+#  Replace every `effort:` above with your own number. Until you do,
+#  the capacity tile is arithmetic on my guesses, not your week.
+# ============================================================
