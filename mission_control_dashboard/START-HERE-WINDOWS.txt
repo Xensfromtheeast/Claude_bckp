@@ -1,0 +1,86 @@
+MISSION CONTROL DASHBOARD — Windows quick start
+================================================
+
+You are in the right folder if you can see BOTH of these next to this file:
+
+    mission_control_dashboard.gemspec
+    mission_control_dashboard-2.3.0.gem
+
+
+FASTEST PATH — no build, no install
+-----------------------------------
+Double-click:  RUN.bat
+
+That runs the dashboard straight from this folder using the Ruby you already
+have. Nothing is installed, nothing is built. Close the window to stop it.
+
+
+INSTALL AS A GEM — gives you the `mission_control` command anywhere
+-------------------------------------------------------------------
+Double-click:  INSTALL.bat
+
+Or in a terminal opened in THIS folder:
+
+    gem install --local mission_control_dashboard-2.3.0.gem
+    mission_control server
+
+Note the --local flag. Without it RubyGems tries to reach rubygems.org to
+resolve dependencies that do not exist, and fails with a network error.
+
+
+BUILDING THE GEM YOURSELF (only if you changed the source)
+-----------------------------------------------------------
+    gem build mission_control_dashboard.gemspec
+    gem install --local mission_control_dashboard-2.3.0.gem
+
+If you see "Couldn't find a gemspec file matching ..." you are in the wrong
+directory. Run `dir` and check the gemspec is listed.
+
+
+YOUR BOARD FILE
+---------------
+On first run the dashboard creates:
+
+    C:\Users\<you>\.mission_control\board.yml
+
+To use the week already converted from your Gemini board instead:
+
+    mission_control server --board week.yml
+
+Edit that file in any text editor, or add and edit tasks in the browser —
+both write the same file.
+
+
+TROUBLESHOOTING
+---------------
+"ruby is not recognized"
+    Ruby is not on your PATH. Install from https://rubyinstaller.org/
+    then reopen the terminal.
+
+"Address already in use"
+    Something else has port 4567. Use another:
+        mission_control server --port 8080
+
+Nothing loads in the browser
+    Check the terminal window is still open and shows MISSION CONTROL ONLINE.
+    Then open http://127.0.0.1:4567
+
+
+IF THE DASHBOARD FREEZES
+------------------------
+Click inside the black console window and press ESC.
+
+Windows consoles have "Quick Edit Mode" on by default. Clicking in the window
+starts a text selection, and while text is selected Windows PAUSES the program
+writing to it. The server looks alive, the browser connects, but no page ever
+loads. Pressing Esc clears the selection and everything resumes instantly.
+
+v2.3.0 makes the server immune to this - it no longer waits on its own log
+output - but a paused console still stops you seeing what it is doing.
+
+RUN.bat turns Quick Edit off for new console windows. To do it yourself:
+  right-click the console title bar > Properties > untick "Quick Edit Mode"
+
+To check the server is healthy from another terminal:
+  curl http://127.0.0.1:4567/healthz
+That reports active connections, requests served, and dropped log lines.

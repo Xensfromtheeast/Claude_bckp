@@ -1,0 +1,18 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Works both installed as a gem and straight out of a cloned/unzipped folder.
+#
+# The local checkout wins deliberately: if you are sitting in the source
+# directory editing lib/, running `ruby bin/mission_control` must exercise
+# what you just wrote, not whatever version happens to be gem-installed.
+# When this file runs as the installed shim, "../lib" IS the gem's own lib,
+# so the same rule gives the right answer there too.
+local_lib = File.expand_path("../lib", __dir__)
+if File.exist?(File.join(local_lib, "mission_control_dashboard.rb"))
+  $LOAD_PATH.unshift(local_lib) unless $LOAD_PATH.include?(local_lib)
+end
+
+require "mission_control_dashboard"
+
+exit MissionControlDashboard::CLI.new.run(ARGV)
