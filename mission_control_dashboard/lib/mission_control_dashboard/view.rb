@@ -179,6 +179,32 @@ module MissionControlDashboard
                   gap:12px;flex-wrap:wrap}
         .archnote b{color:var(--accent);letter-spacing:.08em;text-transform:uppercase;font-size:11px}
         .archnote button{margin-left:auto}
+
+        /* ---------- review queue ---------- */
+        .badge{display:inline-block;min-width:17px;padding:1px 5px;border-radius:99px;
+               background:var(--accent);color:#04101f;font-size:10.5px;font-weight:700;
+               margin-left:6px;line-height:1.5}
+        .modal.wide{max-width:760px}
+        .imp{padding:18px 20px;display:flex;flex-direction:column;gap:12px}
+        .imp textarea{background:var(--panel2);border:1px solid var(--line);border-radius:9px;
+              color:var(--text);padding:10px 12px;font:12.5px/1.5 ui-monospace,Menlo,monospace;
+              width:100%;min-height:150px;resize:vertical}
+        .imp textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px #5b9df926}
+        .imp .hint{font-size:11.5px;color:var(--faint);line-height:1.5}
+        .plist{max-height:52vh;overflow-y:auto;padding:4px 20px 8px}
+        .prow{display:flex;gap:11px;align-items:flex-start;padding:11px 0;
+              border-bottom:1px solid #ffffff0d}
+        .prow:last-child{border-bottom:none}
+        .prow .b{flex:1;min-width:0}
+        .prow .ttl{font-size:13.5px;font-weight:550}
+        .prow .mt{font-size:11.5px;color:var(--faint);margin-top:3px}
+        .prow .ev{font-size:11.5px;color:var(--dim);margin-top:5px;padding-left:9px;
+                  border-left:2px solid var(--line);font-style:italic}
+        .prow .acts{display:flex;gap:6px;flex:none}
+        .prow.gone{opacity:.4}
+        .ptag{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
+              border:1px solid var(--line);border-radius:5px;padding:1px 6px;margin-left:7px}
+        .ptag.dup{color:var(--blocked);border-color:#f5a52455}
         footer{color:var(--faint);font-size:11.5px;text-align:center;padding:18px 0 4px;line-height:1.8}
         footer code{color:var(--dim);background:#ffffff0a;padding:2px 6px;border-radius:5px}
 
@@ -260,6 +286,7 @@ module MissionControlDashboard
             <h2>Week Timeline</h2>
             <div class="ctrls">
               <button id="add" class="primary">+ Add task</button>
+              <button id="inbox" title="Import a chat and review what it suggests">Inbox</button>
               <span id="romark" class="ro" style="display:none">read-only</span>
               <span style="width:4px"></span>
               <button id="wk-prev" title="Previous week">&larr;</button>
@@ -381,6 +408,32 @@ module MissionControlDashboard
               <span class="sp"></span>
               <button id="f-cancel">Cancel</button>
               <button id="f-save" class="primary">Save to YAML</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="scrim" id="pscrim" style="display:none">
+          <div class="modal wide" role="dialog" aria-modal="true">
+            <div class="mhead">
+              <h3>Review queue <span id="pcount" class="badge" style="display:none">0</span></h3>
+              <button id="pclose">Esc</button>
+            </div>
+            <div class="imp">
+              <div class="hint">Paste a shared chat (Claude, Gemini, anything that exports
+                markdown). Checklists and bullets under &ldquo;Next steps&rdquo; or
+                &ldquo;Action items&rdquo; are what gets read. Nothing reaches your board
+                until you accept it below.</div>
+              <textarea id="p-text" placeholder="## Next steps&#10;- [ ] Cut 3 brand stingers (5h) Wednesday 10am&#10;- [ ] Master bus pass Thursday"></textarea>
+              <div style="display:flex;gap:10px;align-items:center">
+                <button id="p-import" class="primary">Read this chat</button>
+                <span class="hint" id="p-note" style="flex:1"></span>
+              </div>
+            </div>
+            <div class="plist" id="plist"></div>
+            <div class="mfoot">
+              <button id="p-discard-all" class="danger">Discard all</button>
+              <span class="sp"></span>
+              <button id="p-accept-all" class="primary">Accept all</button>
             </div>
           </div>
         </div>
@@ -711,6 +764,11 @@ module MissionControlDashboard
           }
           $('arch').style.display =
             (B.read_only || B.archived || B.meta.week_offset > 0) ? 'none' : '';
+
+          var ib = $('inbox');
+          ib.style.display = (B.read_only || B.archived) ? 'none' : '';
+          var open = B.proposals_open || 0;
+          ib.innerHTML = 'Inbox' + (open ? '<span class="badge">'+open+'</span>' : '');
         }
 
         function draw(){
@@ -1040,9 +1098,139 @@ module MissionControlDashboard
         };
         $('scrim').onclick = function(ev){ if (ev.target === this) closeEditor(); };
         document.addEventListener('keydown', function(ev){
+          if (ev.key === 'Escape' && $('pscrim').style.display !== 'none'){
+            $('pscrim').style.display = 'none'; return;
+          }
           if ($('scrim').style.display === 'none') return;
           if (ev.key === 'Escape') closeEditor();
           if (ev.key === 'Enter' && (ev.metaKey || ev.ctrlKey)) save();
+        });
+
+        /* ================= review queue ================= */
+
+        // Imported chats propose; you dispose. Nothing here has touched the
+        // board file — accepting is what runs the normal write path.
+        var QUEUE = { items: [], busy: false };
+
+        function drawQueue(){
+          var box = $('plist');
+          $('pcount').textContent = QUEUE.items.length;
+          $('pcount').style.display = QUEUE.items.length ? '' : 'none';
+          $('p-accept-all').style.display = QUEUE.items.length ? '' : 'none';
+          $('p-discard-all').style.display = QUEUE.items.length ? '' : 'none';
+
+          if (!QUEUE.items.length){
+            box.innerHTML = '<div class="empty">Nothing waiting. Paste a chat above to '
+                          + 'pull tasks out of it.</div>';
+            return;
+          }
+          box.innerHTML = QUEUE.items.map(function(p){
+            var bits = [];
+            if (p.start) bits.push(esc(p.start));
+            if (p.effort) bits.push(hrs(p.effort));
+            if (p.status && p.status !== 'todo') bits.push(esc(p.status));
+            bits.push('from '+esc(p.source || 'chat'));
+            return '<div class="prow" data-p="'+esc(p.id)+'"><div class="b">'
+                 + '<div class="ttl">'+esc(p.title)
+                 + (p.origin === 'ai' ? '<span class="ptag">ai</span>' : '')
+                 + (p.duplicate ? '<span class="ptag dup">already on board</span>' : '')+'</div>'
+                 + '<div class="mt mono">'+esc(p.track || 'Inbox')+' &middot; '+bits.join(' &middot; ')+'</div>'
+                 + (p.evidence ? '<div class="ev">'+esc(p.evidence)+'</div>' : '')
+                 + '</div><div class="acts">'
+                 + '<button data-accept="'+esc(p.id)+'" class="primary">Accept</button>'
+                 + '<button data-discard="'+esc(p.id)+'" class="danger">&times;</button>'
+                 + '</div></div>';
+          }).join('');
+        }
+
+        function loadQueue(){
+          return fetchJSON('/api/proposals').then(function(d){
+            QUEUE.items = d.proposals || []; drawQueue();
+          }).catch(function(e){ console.warn('queue load failed:', e.message); });
+        }
+
+        function openQueue(){
+          if (B.read_only) return;
+          $('p-note').textContent = '';
+          $('pscrim').style.display = 'flex';
+          loadQueue();
+        }
+
+        function importChat(){
+          var text = $('p-text').value;
+          if (!text.trim()){ $('p-note').textContent = 'Paste a chat first.'; return; }
+          if (QUEUE.busy) return;
+          QUEUE.busy = true; $('p-import').textContent = 'Reading...';
+
+          api('POST', '/api/import', { text: text, source: 'pasted chat' })
+            .then(function(d){
+              $('p-text').value = '';
+              var note = d.added + ' queued';
+              if (d.found > d.added) note += ' (' + (d.found - d.added) + ' already there)';
+              $('p-note').textContent = note + '.';
+              if (d.warnings && d.warnings.length) $('p-note').textContent += ' ' + d.warnings[0];
+              return loadQueue();
+            })
+            .catch(function(e){ $('p-note').textContent = e.message; })
+            .then(function(){ QUEUE.busy = false; $('p-import').textContent = 'Read this chat'; });
+        }
+
+        function acceptOne(id){
+          return api('POST', '/api/proposals/'+encodeURIComponent(id)+'/accept', { rev: B.rev })
+            .then(function(){
+              QUEUE.items = QUEUE.items.filter(function(p){ return p.id !== id; });
+              drawQueue();
+              return refresh();
+            });
+        }
+
+        function discardOne(id){
+          return api('DELETE', '/api/proposals/'+encodeURIComponent(id), {})
+            .then(function(){
+              QUEUE.items = QUEUE.items.filter(function(p){ return p.id !== id; });
+              drawQueue();
+              return refresh();
+            });
+        }
+
+        // Sequential, not parallel: each accept writes the YAML and bumps the
+        // revision, so firing them at once would 409 all but the first.
+        function acceptAll(){
+          if (QUEUE.busy) return;
+          QUEUE.busy = true; $('p-accept-all').textContent = 'Adding...';
+          var ids = QUEUE.items.map(function(p){ return p.id; }), ok = 0;
+
+          ids.reduce(function(chain, id){
+            return chain.then(function(){
+              return acceptOne(id).then(function(){ ok += 1; },
+                                        function(e){ console.warn('accept failed:', e.message); });
+            });
+          }, Promise.resolve()).then(function(){
+            QUEUE.busy = false; $('p-accept-all').textContent = 'Accept all';
+            toast('<b>'+ok+' added to the board</b>'+esc(B.meta.board_path),
+                  ok === ids.length ? 'ok' : 'bad');
+          });
+        }
+
+        $('inbox').onclick = openQueue;
+        $('pclose').onclick = function(){ $('pscrim').style.display = 'none'; };
+        $('pscrim').onclick = function(ev){ if (ev.target === this) this.style.display = 'none'; };
+        $('p-import').onclick = importChat;
+        $('p-accept-all').onclick = acceptAll;
+        $('p-discard-all').onclick = function(){
+          if (!QUEUE.items.length) return;
+          if (!confirm('Discard all '+QUEUE.items.length+' proposals? Your board is not affected.')) return;
+          api('DELETE', '/api/proposals', {})
+            .then(function(){ QUEUE.items = []; drawQueue(); })
+            .catch(failed);
+        };
+        $('plist').addEventListener('click', function(ev){
+          var a = ev.target.closest ? ev.target.closest('[data-accept]') : null;
+          if (a){ a.disabled = true; acceptOne(a.dataset.accept).catch(function(e){
+            a.disabled = false; failed(e); }); return; }
+          var d = ev.target.closest ? ev.target.closest('[data-discard]') : null;
+          if (d){ d.disabled = true; discardOne(d.dataset.discard).catch(function(e){
+            d.disabled = false; failed(e); }); }
         });
 
         $('wk-prev').onclick = function(){ refresh(B.meta.week_offset - 1); };

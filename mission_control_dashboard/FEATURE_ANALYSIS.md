@@ -1,11 +1,22 @@
 # Task Analysis and Feature Implementation — Mission Control Dashboard v2.3.0
 
-> **Implementation status (v2.4.0, phase one):** sections II–V below are now
-> built — structured date/time pickers (II), the archive/history system (III),
-> the architecture answers folded into the README (IV), and the local-only
-> `profile.yml` with alignment warnings (V, in its modest warnings-only form).
-> Section VI (AI chat-import) is deliberately still analysis, reserved for its
-> own follow-up. The text below is preserved as the design rationale it was.
+> **Implementation status: all sections built.**
+>
+> *Phase one (v2.4.0)* — structured date/time pickers (II), the
+> archive/history system (III), the architecture answers folded into the
+> README (IV), and the local-only `profile.yml` with alignment warnings
+> (V, in its modest warnings-only form).
+>
+> *Phase two (v2.5.0)* — chat import (VI), built exactly along the lines
+> section VI.A–C proposes: an offline stdlib parser as the default path, an
+> optional `--ai` path using the official Anthropic SDK as a lazily-loaded
+> optional dependency (the Sinatra precedent named in VI.C), and a review
+> queue so that both of them propose while the operator disposes. The
+> "candidate task dicts, never write access" boundary in VI.A is the
+> `Proposals` class; the `<-- ESTIMATE` concern in VI.B became the rule that
+> the parser and the prompt both omit rather than guess.
+>
+> The text below is preserved as the design rationale it was.
 
 This is a design analysis, not a changelog: it evaluates the enhancements
 proposed for the dashboard against the actual v2.3.0 codebase (`lib/`,
