@@ -7,6 +7,8 @@ require_relative "view"
 require_relative "writer"
 require_relative "archive"
 require_relative "profile"
+require_relative "importer"
+require_relative "proposals"
 
 module MissionControlDashboard
   # Server-agnostic routing. Takes (method, path, params, body, headers) and
@@ -14,7 +16,8 @@ module MissionControlDashboard
   # optional Sinatra adapter are thin wrappers over this, so there is exactly
   # one place where the app's behaviour lives.
   class App
-    ROUTES = %w[/ /api/board /api/tasks /api/history /api/archive /healthz].freeze
+    ROUTES = %w[/ /api/board /api/tasks /api/history /api/archive
+                /api/import /api/proposals /healthz].freeze
     READS  = %w[GET HEAD].freeze
     WRITES = %w[POST PATCH PUT DELETE].freeze
 
@@ -23,13 +26,15 @@ module MissionControlDashboard
     # writes files does not.
     LOOPBACK = /\A(localhost|127(\.\d+){3}|\[?::1\]?|0\.0\.0\.0)(:\d+)?\z/i.freeze
 
-    def initialize(board, writer: nil, read_only: false, server: nil, archive: nil, profile: nil)
+    def initialize(board, writer: nil, read_only: false, server: nil, archive: nil,
+                   profile: nil, proposals: nil)
       @board = board
       @writer = writer || Writer.new(board.path)
       @read_only = read_only
       @server = server
       @archive = archive || Archive.new(board)
       @profile = profile || Profile.new(Profile.default_path(board.path))
+      @proposals = proposals || Proposals.new(Proposals.default_path(board.path))
     end
 
     # Let the server hand itself over after construction, so /healthz can
@@ -55,7 +60,13 @@ module MissionControlDashboard
       in ["GET" | "HEAD", "/favicon.ico"] then [204, "image/x-icon", ""]
       in ["GET" | "HEAD", "/api/history"] then history_index
       in ["GET" | "HEAD", %r{\A/api/history/(?<id>[^/]+)\z}] then history_show(Regexp.last_match[:id])
+      in ["GET" | "HEAD", "/api/proposals"] then proposals_index
       in ["POST", "/api/archive"]       then archive_week(body)
+      in ["POST", "/api/import"]        then import_chat(body)
+      in ["POST", %r{\A/api/proposals/(?<id>[^/]+)/accept\z}]
+        accept_proposal(Regexp.last_match[:id], body)
+      in ["DELETE", "/api/proposals"]   then [200, JSON_T, JSON.generate("ok" => true, "cleared" => @proposals.clear)]
+      in ["DELETE", %r{\A/api/proposals/(?<id>[^/]+)\z}] then discard_proposal(Regexp.last_match[:id])
       in ["POST", "/api/tasks"]         then create_task(body)
       in [("PATCH" | "PUT"), %r{\A/api/tasks/(?<id>.+)\z}]  then update_task(Regexp.last_match[:id], body)
       in ["DELETE", %r{\A/api/tasks/(?<id>.+)\z}]           then delete_task(Regexp.last_match[:id])
@@ -117,6 +128,7 @@ module MissionControlDashboard
                                                                        "read_only" => @read_only)
       snap["profile"] = @profile.summary
       snap["warnings"] = snap["warnings"] + @profile.review(snap)
+      snap["proposals_open"] = @proposals.count
 
       # A past week whose real snapshot is on disk: tell the client, so it
       # can show history instead of replaying relative tasks against a week
@@ -159,6 +171,94 @@ module MissionControlDashboard
 
     def truthy_flag(value)
       [true, "true", 1, "1"].include?(value)
+    end
+
+    # ---------- chat import + review queue ----------
+
+    # Marks proposals whose title already exists on the board. A chat often
+    # rehashes work you have already scheduled, and silently adding a second
+    # copy is worse than saying so — but it stays a flag, not a refusal:
+    # doing the same thing twice in a week is legitimate.
+    def proposals_index
+      existing = begin
+        @board.snapshot["tasks"].map { |t| normalize_title(t["title"]) }
+      rescue StandardError
+        []
+      end
+
+      rows = @proposals.list.map do |p|
+        p.merge("duplicate" => existing.include?(normalize_title(p["title"])))
+      end
+      [200, JSON_T, JSON.generate("proposals" => rows)]
+    end
+
+    def normalize_title(title)
+      title.to_s.downcase.gsub(/[^a-z0-9]+/, " ").strip
+    end
+
+    # Reads pasted chat markdown into candidates. The text is untrusted
+    # input, so it is only ever pattern-matched and quoted back — never
+    # executed, and never written to the board from here.
+    def import_chat(body)
+      payload = parse_json(body)
+      return payload if payload.is_a?(Array)
+
+      text = payload["text"].to_s
+      return json_error(422, "Paste the chat text to import.") if text.strip.empty?
+
+      source = payload["source"].to_s.strip
+      source = "pasted chat" if source.empty?
+
+      importer = Importer.new
+      candidates = importer.parse(text, source: source[0, 120])
+      added = @proposals.add(candidates, origin: "import")
+
+      [201, JSON_T, JSON.generate(
+        "ok" => true, "found" => candidates.length, "added" => added.length,
+        "open" => @proposals.count, "warnings" => importer.warnings
+      )]
+    rescue Proposals::ProposalError => e
+      json_error(422, e.message)
+    end
+
+    # Accepting is the only path from the queue to the board, and it goes
+    # through exactly the same clean/validate/write as the editor does.
+    def accept_proposal(id, body)
+      payload = parse_json(body)
+      return payload if payload.is_a?(Array)
+
+      proposal = @proposals.find(unescape(id))
+      return json_error(404, "No proposal #{id.inspect}; it may already be accepted.") unless proposal
+
+      attrs = clean(@proposals.to_task(proposal, payload["task"] || {}))
+      attrs["start"] = default_start if attrs["start"].to_s.strip.empty?
+      attrs["duration"] = 1 if attrs["end"].to_s.strip.empty? && attrs["duration"].nil?
+      attrs["id"] = next_id(attrs["title"])
+      err = validate(attrs)
+      return json_error(422, err) if err
+
+      saved = @writer.add_task(attrs, rev: payload["rev"])
+      @proposals.remove(proposal["id"])
+      [201, JSON_T, JSON.generate(saved.merge("ok" => true, "open" => @proposals.count))]
+    rescue Writer::ConflictError => e
+      json_error(409, e.message)
+    rescue Writer::WriteError, Board::BoardError, Proposals::ProposalError => e
+      json_error(422, e.message)
+    end
+
+    def discard_proposal(id)
+      gone = @proposals.remove(unescape(id))
+      [200, JSON_T, JSON.generate("ok" => true, "id" => gone["id"], "open" => @proposals.count)]
+    rescue Proposals::ProposalError => e
+      json_error(404, e.message)
+    end
+
+    # A proposal with no time in it still has to land somewhere real. The
+    # next whole hour today is honest about being a placeholder — it shows
+    # up as live/upcoming rather than hiding at the edge of the week.
+    def default_start
+      now = Time.now
+      Time.new(now.year, now.month, now.day, now.hour, 0, 0).strftime("%Y-%m-%d %H:%M")
     end
 
     # ---------- writes ----------

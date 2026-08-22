@@ -12,9 +12,9 @@ Gem::Specification.new do |spec|
 
   spec.summary     = "Week timeline, Gantt and goal-capacity dashboard as a zero-dependency Ruby gem"
   spec.description = "A local mission control dashboard: an hour-resolution week Gantt chart, " \
-                     "live task telemetry and a pending-goal countdown with a capacity check, " \
-                     "driven by a plain YAML file. Runs on Ruby's standard library alone - " \
-                     "no Rails, no Sinatra, no Rack, no build step."
+                     "live task telemetry, a pending-goal countdown with a capacity check, " \
+                     "week archiving and chat import, driven by a plain YAML file. Runs on " \
+                     "Ruby's standard library alone - no Rails, no Sinatra, no Rack, no build step."
   spec.homepage    = "https://github.com/xens/mission_control_dashboard"
   spec.license     = "MIT"
   spec.required_ruby_version = ">= 3.0.0"
@@ -31,7 +31,12 @@ Gem::Specification.new do |spec|
   spec.require_paths      = ["lib"]
 
   # No runtime dependencies. That is the point.
-  # Sinatra is supported but optional: `gem install sinatra` then
-  # `mission_control server --engine sinatra`.
+  #
+  # Two features are supported but optional, and neither is needed for the
+  # dashboard itself:
+  #   sinatra   `gem install sinatra` -> `mission_control server --engine sinatra`
+  #   anthropic `gem install anthropic` -> `mission_control import chat.md --ai`
+  # Both are required lazily; without them everything else works unchanged,
+  # and chat import falls back to the offline parser.
   spec.add_development_dependency "rake", "~> 13.0"
 end

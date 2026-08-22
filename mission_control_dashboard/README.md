@@ -8,13 +8,16 @@ Driven by one plain YAML file. **No runtime gem dependencies** — it runs on
 Ruby's standard library alone. No Rails, no Sinatra, no Rack, no Node, no
 build step, no CDN. Nothing to install but the gem itself.
 
+Everything works offline. One optional feature (`import --ai`) talks to a
+network, and only when you ask it to.
+
 ---
 
 ## Install
 
 ```bash
 gem build mission_control_dashboard.gemspec
-gem install mission_control_dashboard-2.4.0.gem
+gem install mission_control_dashboard-2.5.0.gem
 mission_control server
 ```
 
@@ -41,11 +44,14 @@ That works straight out of the directory — no build, no install.
 | `mission_control archive` | Snapshot a week into `history/` with absolute dates (`--week -1` for last week) |
 | `mission_control history` | List the archived weeks |
 | `mission_control profile` | Write a starter `profile.yml` (who the board is for — local only) |
+| `mission_control import chat.md` | Read a shared AI chat into the review queue |
+| `mission_control proposals` | List, accept or discard what's in the review queue |
 | `mission_control doctor` | Check the environment and validate your board |
 | `mission_control path` | Print the board file path |
 
 Flags: `-p/--port`, `-H/--host`, `-b/--board`, `-q/--quiet`, `--read-only`,
-`--engine sinatra`, `--week N` (archive), `--force`.
+`--engine sinatra`, `--week N` (archive), `--ai` (import), `--accept`/`--discard`
+(proposals), `--force`.
 
 ---
 
@@ -195,6 +201,9 @@ your board. Use `--read-only` if you want to put it on a wall display.
 | `PATCH /api/tasks/:id` | update the given fields only |
 | `DELETE /api/tasks/:id` | remove |
 | `POST /api/archive` | snapshot a week into `history/` — body `{week: 0 or negative, force: bool}` |
+| `POST /api/import` | read chat markdown into the review queue — body `{text, source}` |
+| `POST /api/proposals/:id/accept` | accept one proposal onto the board |
+| `DELETE /api/proposals/:id` | discard one (`DELETE /api/proposals` empties the queue) |
 
 All three require the `X-Mission-Control: 1` header and return
 `{ok, id, rev}` or `{ok: false, error}` with a `409` (stale rev) or `422`
@@ -273,6 +282,73 @@ Warnings, never rejections: the profile advises, the operator decides.
 
 ---
 
+## Chat import
+
+You worked out this week's plan in a chat with an AI. Those tasks are sitting
+in a transcript, and retyping them into the board is the boring part.
+
+```bash
+mission_control import ~/Downloads/claude-chat.md
+mission_control proposals              # see what it found
+mission_control proposals --accept ALL # or accept/discard one at a time
+```
+
+Or click **Inbox** in the dashboard and paste the chat straight in.
+
+**Nothing an import finds goes on your board.** Candidates land in a review
+queue (`proposals.yml`, beside your board) and wait for you to accept, edit,
+or throw them away. Accepting runs the same validation and key allow-list as
+typing the task in by hand. That is the entire safety model, and it is why a
+chat log — which is text someone else may have written — can never write to
+your file.
+
+### What it reads
+
+By default, with no network and no dependencies: checkbox lines (`- [ ] …`,
+`- [x] …` anywhere), and bullets or numbered items under a heading like
+**Next steps**, **Action items**, **To-dos**, or **Plan**. Assistant chatter
+("Sure, I can help with that") is skipped, duplicates are collapsed, and
+scheduling language is lifted out of the title into real fields:
+
+| The chat says | You get |
+| --- | --- |
+| `- [ ] Cut 3 brand stingers (5h) Wednesday 10am` | title `Cut 3 brand stingers`, `start: wed 10:00`, `effort: 5` |
+| `- Master bus pass Thursday 9am — needs 4 hours` | title `Master bus pass`, `start: thu 09:00`, `effort: 4` |
+| `- [x] Book the studio for Tuesday` | title `Book the studio`, `start: tue`, `status: done` |
+
+If the chat doesn't say when, **nothing is invented** — the proposal arrives
+without a start time and you set it when you accept. A proposal whose title
+already exists on your board is flagged *already on board* rather than
+quietly duplicated.
+
+### `--ai`: the optional half
+
+The parser needs bullet points. A conversation that says "I'll get the stems
+done Tuesday and the master needs a solid afternoon" has two tasks in it and
+no list at all. For that:
+
+```bash
+gem install anthropic
+export ANTHROPIC_API_KEY=...
+mission_control import ~/Downloads/chat.md --ai
+```
+
+**This is the only feature in the gem that touches a network, and it is off
+unless you pass `--ai`.** It follows exactly the pattern Sinatra already
+uses here: the `anthropic` gem is an optional dependency, loaded lazily, so
+the promise of zero runtime dependencies is intact. Without the gem or a
+key, `--ai` tells you why and you keep the offline parser.
+
+It reads the chat with `claude-opus-5`, is told to omit anything it isn't
+confident about rather than guess a schedule, and is told the transcript is
+data rather than instructions. Its output goes into the same review queue as
+everything else — the model proposes, it never writes.
+
+Your board, your profile, and your history are never sent anywhere. Only the
+chat file you explicitly point `--ai` at leaves the machine.
+
+---
+
 ## What the numbers mean
 
 **Capacity to goal** is the tile worth reading twice. It compares:
@@ -321,6 +397,7 @@ Hover any bar for the full window, status, progress, owner and notes.
 | `/api/board?week=N` | the full computed board as JSON |
 | `/api/history` | the list of archived weeks |
 | `/api/history/:week` | one archived snapshot (always read-only) |
+| `/api/proposals` | the review queue |
 | `/healthz` | `{"ok":true}` |
 
 `/api/board` is the integration point. It returns resolved timestamps, derived
@@ -388,10 +465,13 @@ output was blocked — which on Windows means: click the console, press Esc.
 ruby -Ilib -Itest -e 'Dir["test/**/*_test.rb"].each { |f| require File.expand_path(f) }'
 ```
 
-83 tests cover time parsing, state derivation, the capacity maths, malformed
+130 tests cover time parsing, state derivation, the capacity maths, malformed
 YAML, HTML escaping, the socket server end to end, comment-preserving writes,
 revision conflicts, every rejection path on the write API, week archiving
-(including the id validation and the read-only guarantee on history), and the
-profile's warning rules.
+(including id validation and the read-only guarantee on history), the
+profile's warning rules, the chat parser's extraction and its refusal to
+invent a schedule, and the review queue — including the guarantee that an
+import never writes to the board and that review metadata never reaches the
+YAML.
 
 MIT licensed.

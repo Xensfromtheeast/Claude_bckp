@@ -54,6 +54,15 @@ class HTTPTest < Minitest::Test
     assert_equal [], JSON.parse(res.body)["weeks"]
   end
 
+  def test_serves_the_review_queue_over_the_socket
+    res = get("/")
+    assert_includes res.body, 'id="inbox"'
+
+    res = get("/api/proposals")
+    assert_equal "200", res.code
+    assert_equal [], JSON.parse(res.body)["proposals"]
+  end
+
   def test_serves_the_dashboard
     res = get("/")
     assert_equal "200", res.code

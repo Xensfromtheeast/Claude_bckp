@@ -4,19 +4,21 @@ Staging area for work produced by Claude Code.
 
 ## Contents
 
-### Mission Control Dashboard (Ruby gem, v2.4.0)
+### Mission Control Dashboard (Ruby gem, v2.5.0)
 
 A local week-timeline dashboard: hour-resolution Gantt, live task telemetry,
 a pending-goal countdown with a capacity check, and browser-based editing
 that writes back to YAML. Zero runtime dependencies — Ruby stdlib only.
 
-- `mission_control_dashboard/` — the gem source (83 tests passing). v2.4.0
-  adds phase one of the feature analysis: structured date/time pickers in
-  the editor, week archiving with real read-only history views, and a
-  local-only `profile.yml` that personalises the board's warnings
-- `mission_control_dashboard/FEATURE_ANALYSIS.md` — the design analysis the
-  phase-one work implements; section VI (AI chat-import) remains a proposed
-  follow-up
+- `mission_control_dashboard/` — the gem source (130 tests passing)
+  - **v2.4.0** — structured date/time pickers, week archiving with real
+    read-only history views, and a local-only `profile.yml` that
+    personalises the board's warnings
+  - **v2.5.0** — chat import: turn a shared AI chat into candidate tasks,
+    offline by default, with an optional `--ai` path. Everything lands in a
+    review queue first; nothing writes to the board unreviewed
+- `mission_control_dashboard/FEATURE_ANALYSIS.md` — the design analysis both
+  phases implement
 
 ### Sentinel-V1 deployment (GitHub Release CI/CD)
 
